@@ -4,13 +4,15 @@ Azure OpenAI 服务实现
 """
 import os
 import json
+import asyncio
 from typing import Optional
 from openai import AzureOpenAI
 from .ai_base import (
     AIServiceBase,
     SummaryResult,
     SentimentResult,
-    EntityResult
+    EntityResult,
+    EmailAnalysisResult
 )
 
 
@@ -54,7 +56,8 @@ class AzureService(AIServiceBase):
         使用 Azure OpenAI 生成邮件摘要
         """
         try:
-            response = self.client.chat.completions.create(
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
                 model=self.deployment_name,
                 messages=[
                     {
@@ -81,7 +84,7 @@ class AzureService(AIServiceBase):
             )
             
             result_text = response.choices[0].message.content
-            result = json.loads(result_text)
+            result = self.parse_json_response(result_text)
             
             return SummaryResult(
                 summary=result.get("summary", ""),
@@ -89,8 +92,11 @@ class AzureService(AIServiceBase):
             )
         
         except json.JSONDecodeError:
-            return SummaryResult(
-                summary=response.choices[0].message.content[:max_length],
+            # 如果解析失败，回退到由于 JSONDecodeError 捕获前的逻辑，但实际上 parse_json_response 已经处理了一部分
+            # 这里如果不使用 response_format={"type": "json_object"}，可能需要更复杂的 fallback
+            # 但既然用了 json_object，理应拿到 JSON。如果拿到的是空或乱码...
+             return SummaryResult(
+                summary=response.choices[0].message.content[:max_length] if 'response' in locals() else "",
                 key_points=None
             )
         except Exception as e:
@@ -101,7 +107,8 @@ class AzureService(AIServiceBase):
         使用 Azure OpenAI 进行情感分析
         """
         try:
-            response = self.client.chat.completions.create(
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
                 model=self.deployment_name,
                 messages=[
                     {
@@ -128,7 +135,7 @@ class AzureService(AIServiceBase):
                 response_format={"type": "json_object"}
             )
             
-            result = json.loads(response.choices[0].message.content)
+            result = self.parse_json_response(response.choices[0].message.content)
             
             return SentimentResult(
                 label=result.get("label", "neutral"),
@@ -148,7 +155,8 @@ class AzureService(AIServiceBase):
         使用 Azure OpenAI 提取实体
         """
         try:
-            response = self.client.chat.completions.create(
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
                 model=self.deployment_name,
                 messages=[
                     {
@@ -178,8 +186,88 @@ class AzureService(AIServiceBase):
                 response_format={"type": "json_object"}
             )
             
-            result = json.loads(response.choices[0].message.content)
+            result = self.parse_json_response(response.choices[0].message.content)
             return EntityResult(entities=result.get("entities", []))
         
         except Exception as e:
             return EntityResult(entities=[])
+
+    async def analyze_email(self, content: str, prompt_template: str = None) -> EmailAnalysisResult:
+        """
+        综合分析邮件
+        """
+        # 如果未提供模板，使用默认的（这里暂时硬编码一个默认值，或者也可以从 batch_analysis_service 导入常量，
+        # 但为了解耦，最好在这里或 base 里定义）
+        if not prompt_template:
+            prompt_template = """请分析以下邮件内容，重点关注：
+1. 是否涉及敏感信息（如密码、账号、财务数据、个人隐私等）
+2. 是否存在合规风险（如未授权数据传输、违规操作等）
+3. 主要话题和关键信息点
+4. 提取 3-5 个核心标签关键词（用于快速概览）
+
+请以 JSON 格式返回分析结果：
+{
+    "risk_level": "低/中/高",
+    "summary": "100字以内的核心内容简述",
+    "tags": ["标签1", "标签2", "标签3"],
+    "key_findings": "如有敏感或合规相关内容"
+}
+
+邮件内容：
+{content}
+
+请直接返回 JSON，不要添加任何解释。所有内容（包括摘要、标签、关键发现）必须使用**简体中文**。"""
+
+        # 替换内容
+        prompt = prompt_template.replace("{content}", content[:3000])
+
+        try:
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
+                model=self.deployment_name,
+                messages=[
+                    {"role": "system", "content": "你是一个专业的邮件分析助手。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=1000,
+                response_format={"type": "json_object"}
+            )
+            
+            result = self.parse_json_response(response.choices[0].message.content)
+            
+            return EmailAnalysisResult(
+                summary=result.get("summary", ""),
+                risk_level=result.get("risk_level", "Low"),
+                tags=result.get("tags", []),
+                key_findings=result.get("key_findings", ""),
+                key_points=result.get("key_points", [])
+            )
+        except Exception as e:
+            # 发生错误时返回一个安全的默认结果
+            print(f"Azure analyze_email failed: {e}")
+            return EmailAnalysisResult(
+                summary="分析失败",
+                risk_level="Unknown",
+                tags=[],
+                key_findings=f"Error: {str(e)}"
+            )
+
+    async def generate_raw_content(self, prompt: str) -> str:
+        """
+        生成原始内容（直接使用 Prompt）
+        """
+        try:
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
+                model=self.deployment_name,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=1000
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            raise RuntimeError(f"Azure OpenAI API 调用失败: {str(e)}")

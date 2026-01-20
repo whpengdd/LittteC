@@ -2,6 +2,7 @@
 Student c - 后端主入口
 FastAPI 应用配置
 """
+# Trigger reload
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -14,6 +15,8 @@ from api.people_api import router as people_router
 from api.chat_api import router as chat_router
 from api.clusters_api import router as clusters_router
 from api.preview_api import router as preview_router
+from api.config_api import router as config_router
+from api.batch_analysis_api import router as batch_analysis_router
 
 # 加载环境变量
 load_dotenv()
@@ -42,6 +45,8 @@ app.include_router(people_router)
 app.include_router(chat_router)
 app.include_router(clusters_router)
 app.include_router(preview_router)
+app.include_router(config_router)
+app.include_router(batch_analysis_router)
 
 
 @app.get("/")

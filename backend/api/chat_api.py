@@ -8,6 +8,8 @@ import os
 import asyncio
 import google.generativeai as genai
 
+from services.config_service import get_config_service
+
 from services.db_service import get_db_service
 
 
@@ -18,7 +20,7 @@ class ChatRequest(BaseModel):
     """聊天请求模型"""
     task_id: str
     question: str
-    model: str = "gemini"  # gemini or azure
+    model: Optional[str] = None  # 可选，未指定时使用全局配置
 
 
 class ChatResponse(BaseModel):
@@ -55,8 +57,11 @@ async def chat(request: ChatRequest):
     # 构建上下文
     context_text = build_context(context_emails)
     
+    # 获取要使用的模型（优先使用请求指定的模型，否则使用全局配置）
+    model_to_use = request.model or get_config_service().get_llm_provider()
+    
     # 调用 AI 生成答案
-    if request.model == "gemini":
+    if model_to_use == "gemini":
         answer = await generate_answer_gemini(request.question, context_text)
     else:
         answer = await generate_answer_azure(request.question, context_text)
@@ -64,7 +69,7 @@ async def chat(request: ChatRequest):
     return ChatResponse(
         answer=answer,
         context_emails=context_emails[:5],  # 只返回前5封相关邮件
-        model_used=request.model
+        model_used=model_to_use
     )
 
 

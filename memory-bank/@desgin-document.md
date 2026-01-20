@@ -17,6 +17,7 @@
 - **双引擎支持**:
   - **Model A**: Google Gemini
   - **Model B**: Azure OpenAI (GPT)
+- **全局配置**: LLM 提供商为全局设置，默认使用 Azure，可在设置页面切换
 - **功能**: 对邮件内容进行摘要、情感分析、实体提取等。
 
 ### 3. 功能模块 (Functional Requirements)

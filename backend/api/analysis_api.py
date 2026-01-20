@@ -7,6 +7,8 @@ from typing import Optional, Literal
 import uuid
 import os
 
+from services.config_service import get_config_service
+
 from services.db_service import get_db_service
 from services.gemini_service import GeminiService
 from services.azure_service import AzureService
@@ -21,7 +23,7 @@ class AnalysisRequest(BaseModel):
     """分析请求"""
     task_id: str
     email_id: int
-    model: Literal["gemini", "azure"] = "gemini"  # 默认使用 Gemini
+    model: Optional[Literal["gemini", "azure"]] = None  # 可选，未指定时使用全局配置
 
 
 class AnalysisResponse(BaseModel):
@@ -92,8 +94,9 @@ async def summarize_email(request: AnalysisRequest):
     # 2. 构建完整文本（主题 + 内容）
     text_to_analyze = f"主题: {email.get('subject', '无主题')}\n\n{email.get('content', '')}"
     
-    # 3. 调用 AI 服务生成摘要
-    ai_service = get_ai_service(request.model)
+    # 3. 调用 AI 服务生成摘要（优先使用请求指定的模型，否则使用全局配置）
+    model_to_use = request.model or get_config_service().get_llm_provider()
+    ai_service = get_ai_service(model_to_use)
     summary_result = await ai_service.summarize(text_to_analyze)
     
     # 4. 保存分析结果到数据库
@@ -103,7 +106,7 @@ async def summarize_email(request: AnalysisRequest):
         task_id=request.task_id,
         email_id=request.email_id,
         analysis_type="summary",
-        model_provider=request.model,
+        model_provider=model_to_use,
         result=summary_result.model_dump()
     )
     
@@ -112,7 +115,7 @@ async def summarize_email(request: AnalysisRequest):
         analysis_id=analysis_id,
         email_id=request.email_id,
         analysis_type="summary",
-        model_provider=request.model,
+        model_provider=model_to_use,
         result=summary_result.model_dump()
     )
 
@@ -135,8 +138,9 @@ async def analyze_sentiment(request: AnalysisRequest):
     # 2. 构建文本
     text_to_analyze = f"主题: {email.get('subject', '无主题')}\n\n{email.get('content', '')}"
     
-    # 3. 调用 AI 服务
-    ai_service = get_ai_service(request.model)
+    # 3. 调用 AI 服务（优先使用请求指定的模型，否则使用全局配置）
+    model_to_use = request.model or get_config_service().get_llm_provider()
+    ai_service = get_ai_service(model_to_use)
     sentiment_result = await ai_service.analyze_sentiment(text_to_analyze)
     
     # 4. 保存结果
@@ -146,7 +150,7 @@ async def analyze_sentiment(request: AnalysisRequest):
         task_id=request.task_id,
         email_id=request.email_id,
         analysis_type="sentiment",
-        model_provider=request.model,
+        model_provider=model_to_use,
         result=sentiment_result.model_dump()
     )
     
@@ -155,7 +159,7 @@ async def analyze_sentiment(request: AnalysisRequest):
         analysis_id=analysis_id,
         email_id=request.email_id,
         analysis_type="sentiment",
-        model_provider=request.model,
+        model_provider=model_to_use,
         result=sentiment_result.model_dump()
     )
 
@@ -178,8 +182,9 @@ async def extract_entities(request: AnalysisRequest):
     # 2. 构建文本
     text_to_analyze = f"主题: {email.get('subject', '无主题')}\n\n{email.get('content', '')}"
     
-    # 3. 调用 AI 服务
-    ai_service = get_ai_service(request.model)
+    # 3. 调用 AI 服务（优先使用请求指定的模型，否则使用全局配置）
+    model_to_use = request.model or get_config_service().get_llm_provider()
+    ai_service = get_ai_service(model_to_use)
     entity_result = await ai_service.extract_entities(text_to_analyze)
     
     # 4. 保存结果
@@ -189,7 +194,7 @@ async def extract_entities(request: AnalysisRequest):
         task_id=request.task_id,
         email_id=request.email_id,
         analysis_type="entities",
-        model_provider=request.model,
+        model_provider=model_to_use,
         result=entity_result.model_dump()
     )
     
@@ -198,7 +203,7 @@ async def extract_entities(request: AnalysisRequest):
         analysis_id=analysis_id,
         email_id=request.email_id,
         analysis_type="entities",
-        model_provider=request.model,
+        model_provider=model_to_use,
         result=entity_result.model_dump()
     )
 

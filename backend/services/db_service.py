@@ -65,6 +65,31 @@ class DBService:
                 FOREIGN KEY (email_id) REFERENCES emails(id)
             )
         """)
+        
+        # 创建 batch_analysis_jobs 表（批量分析任务）
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS batch_analysis_jobs (
+                id VARCHAR PRIMARY KEY,
+                task_id VARCHAR NOT NULL,
+                status VARCHAR NOT NULL DEFAULT 'PENDING',
+                prompt TEXT,
+                filter_keywords JSON,
+                model_provider VARCHAR NOT NULL DEFAULT 'gemini',
+                concurrency INTEGER NOT NULL DEFAULT 5,
+                max_retries INTEGER NOT NULL DEFAULT 3,
+                total_count INTEGER NOT NULL DEFAULT 0,
+                processed_count INTEGER NOT NULL DEFAULT 0,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                failed_count INTEGER NOT NULL DEFAULT 0,
+                skipped_count INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL,
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP,
+                error_message TEXT,
+                analysis_type VARCHAR NOT NULL DEFAULT 'email',
+                FOREIGN KEY (task_id) REFERENCES tasks(id)
+            )
+        """)
     
     def create_task(self, task_id: str, name: str, file_path: Optional[str] = None) -> Dict[str, Any]:
         """创建新任务"""
@@ -226,7 +251,7 @@ class DBService:
                 timestamp_col = mapping.get("timestamp") if mapping else None
                 
                 # 构建 WHERE 子句（过滤条件）
-                where_sql = self._build_filter_where_clause(filter_config)
+                where_sql = DBService.build_filter_where_clause(filter_config)
                 
                 # 构建 SELECT 语句
                 sql = f"""
@@ -254,7 +279,8 @@ class DBService:
             print(f"Error importing file with config for task {task_id}: {e}")
             raise e
     
-    def _build_filter_where_clause(self, filter_config: Optional[Dict[str, Any]]) -> str:
+    @staticmethod
+    def build_filter_where_clause(filter_config: Optional[Dict[str, Any]]) -> str:
         """
         构建过滤条件的 WHERE 子句
         
@@ -313,14 +339,42 @@ class DBService:
         return f"WHERE ({combined})"
     
     def get_emails_by_task(self, task_id: str, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
-        """获取任务的邮件记录"""
-        result = self.conn.execute(
-            "SELECT * FROM emails WHERE task_id = ? LIMIT ? OFFSET ?",
-            [task_id, limit, offset]
-        ).fetchall()
+        """获取任务的邮件记录，包含批量分析结果"""
+        import json
         
-        columns = ["id", "task_id", "sender", "receiver", "subject", "content", "timestamp"]
-        return [dict(zip(columns, row)) for row in result]
+        # 使用 LEFT JOIN 获取邮件及其对应的分析结果 (优先 batch_summary，其次 summary)
+        query = """
+            SELECT e.*, 
+                   COALESCE(ar_batch.result, ar_summary.result) as analysis_result
+            FROM emails e
+            LEFT JOIN analysis_results ar_batch ON e.id = ar_batch.email_id 
+                AND ar_batch.analysis_type = 'batch_summary'
+            LEFT JOIN analysis_results ar_summary ON e.id = ar_summary.email_id 
+                AND ar_summary.analysis_type = 'summary'
+            WHERE e.task_id = ? 
+            LIMIT ? OFFSET ?
+        """
+        
+        result = self.conn.execute(query, [task_id, limit, offset]).fetchall()
+        
+        columns = ["id", "task_id", "sender", "receiver", "subject", "content", "timestamp", "batch_analysis_result"]
+        emails = []
+        for row in result:
+            email = dict(zip(columns, row))
+            # 转换 timestamp 为字符串
+            if email.get("timestamp"):
+                email["timestamp"] = email["timestamp"].isoformat()
+            
+            # 尝试解析 batch_analysis_result
+            if email.get("batch_analysis_result"):
+                try:
+                    email["batch_analysis_result"] = json.loads(email["batch_analysis_result"])
+                except:
+                    pass
+            
+            emails.append(email)
+            
+        return emails
     
     def get_email_by_id(self, email_id: int) -> Optional[Dict[str, Any]]:
         """根据 ID 获取单封邮件"""
@@ -760,6 +814,281 @@ class DBService:
                     "ai_insight": insight or ""
                 })
             return clusters
+    
+    # ==================== 批量分析任务方法 ====================
+    
+    def create_batch_job(
+        self,
+        job_id: str,
+        task_id: str,
+        prompt: str,
+        filter_keywords: List[str],
+        model_provider: str,
+        concurrency: int = 5,
+        max_retries: int = 3,
+        analysis_type: str = "email"
+    ) -> Dict[str, Any]:
+        """创建批量分析任务"""
+        import json
+        created_at = datetime.now()
+        
+        # 确保 analysis_type 列存在 (向前兼容)
+        try:
+            self.conn.execute("ALTER TABLE batch_analysis_jobs ADD COLUMN analysis_type VARCHAR DEFAULT 'email'")
+        except:
+            pass  # 列已存在
+        
+        self.conn.execute(
+            """INSERT INTO batch_analysis_jobs 
+               (id, task_id, status, prompt, filter_keywords, model_provider, 
+                concurrency, max_retries, created_at, analysis_type)
+               VALUES (?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, ?)""",
+            [job_id, task_id, prompt, json.dumps(filter_keywords), 
+             model_provider, concurrency, max_retries, created_at, analysis_type]
+        )
+        
+        return {
+            "id": job_id,
+            "task_id": task_id,
+            "analysis_type": analysis_type,
+            "status": "PENDING",
+            "prompt": prompt,
+            "filter_keywords": filter_keywords,
+            "model_provider": model_provider,
+            "concurrency": concurrency,
+            "max_retries": max_retries,
+            "total_count": 0,
+            "processed_count": 0,
+            "success_count": 0,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "created_at": created_at.isoformat()
+        }
+    
+    def get_batch_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """获取批量分析任务详情"""
+        import json
+          # 使用明确的列查询，避免列顺序问题
+        columns = ["id", "task_id", "status", "prompt", "filter_keywords", 
+                  "model_provider", "concurrency", "max_retries", 
+                  "total_count", "processed_count", "success_count", 
+                  "failed_count", "skipped_count", "created_at", 
+                  "started_at", "completed_at", "error_message", "analysis_type"]
+        
+        query_cols = ", ".join(columns)
+        # 兼容旧表结构 (如果缺少 analysis_type 列，查询会失败，所以这里还是有点风险，最好的方式是 migrate)
+        # 但考虑到 DuckDB file-based，简单起见我们假设 schema 已经更新 (create_batch_job 会 alter table)
+        # 如果是查询旧任务，get_batch_job 应该也能工作 (ALTER ADD COLUMN 之后)
+        
+        query = f"SELECT {query_cols} FROM batch_analysis_jobs WHERE id = ?"
+        
+        try:
+            result = self.conn.execute(query, [job_id]).fetchone()
+        except:
+            # 如果查询失败（可能因为旧数据没有 analysis_type），回退到旧查询并补全
+            columns_old = columns[:-1]
+            query_cols_old = ", ".join(columns_old)
+            query = f"SELECT {query_cols_old} FROM batch_analysis_jobs WHERE id = ?"
+            result = self.conn.execute(query, [job_id]).fetchone()
+            if result:
+                job = dict(zip(columns_old, result))
+                job["analysis_type"] = "email"
+                result = None # 已处理
+            else:
+                return None
+
+        if result:
+            job = dict(zip(columns, result))
+            
+            # 解析 JSON 字段
+            if job.get("filter_keywords"):
+                job["filter_keywords"] = json.loads(job["filter_keywords"])
+            
+            # 转换 datetime 为字符串
+            for field in ["created_at", "started_at", "completed_at"]:
+                if job.get(field) and hasattr(job[field], 'isoformat'):
+                    job[field] = job[field].isoformat()
+            
+            return job
+        return None
+    
+    def get_batch_jobs_by_task(self, task_id: str) -> List[Dict[str, Any]]:
+        """获取指定任务的所有批量分析作业"""
+        import json
+        columns = ["id", "task_id", "status", "prompt", "filter_keywords", 
+                  "model_provider", "concurrency", "max_retries", 
+                  "total_count", "processed_count", "success_count", 
+                  "failed_count", "skipped_count", "created_at", 
+                  "started_at", "completed_at", "error_message", "analysis_type"]
+        
+        query_cols = ", ".join(columns)
+        query = f"SELECT {query_cols} FROM batch_analysis_jobs WHERE task_id = ? ORDER BY created_at DESC"
+        
+        try:
+            result = self.conn.execute(query, [task_id]).fetchall()
+            jobs = []
+            for row in result:
+                job = dict(zip(columns, row))
+                # ... (后续处理)
+                jobs.append(job)
+        except:
+            # 回退逻辑
+            columns_old = columns[:-1]
+            query_cols_old = ", ".join(columns_old)
+            query = f"SELECT {query_cols_old} FROM batch_analysis_jobs WHERE task_id = ? ORDER BY created_at DESC"
+            result = self.conn.execute(query, [task_id]).fetchall()
+            jobs = []
+            for row in result:
+                job = dict(zip(columns_old, row))
+                job["analysis_type"] = "email"
+                jobs.append(job)
+
+        # 统一后续处理
+        final_jobs = []
+        for job in jobs:
+            if job.get("filter_keywords"):
+                job["filter_keywords"] = json.loads(job["filter_keywords"])
+            for field in ["created_at", "started_at", "completed_at"]:
+                if job.get(field) and hasattr(job[field], 'isoformat'):
+                    job[field] = job[field].isoformat()
+        
+        return jobs
+    
+    def update_batch_job_status(
+        self, 
+        job_id: str, 
+        status: str, 
+        error_message: Optional[str] = None
+    ):
+        """更新批量分析任务状态"""
+        now = datetime.now()
+        
+        if status == "RUNNING":
+            self.conn.execute(
+                "UPDATE batch_analysis_jobs SET status = ?, started_at = ? WHERE id = ?",
+                [status, now, job_id]
+            )
+        elif status in ("COMPLETED", "FAILED", "CANCELLED"):
+            self.conn.execute(
+                """UPDATE batch_analysis_jobs 
+                   SET status = ?, completed_at = ?, error_message = ? 
+                   WHERE id = ?""",
+                [status, now, error_message, job_id]
+            )
+        else:
+            self.conn.execute(
+                "UPDATE batch_analysis_jobs SET status = ? WHERE id = ?",
+                [status, job_id]
+            )
+    
+    def update_batch_job_progress(
+        self, 
+        job_id: str, 
+        processed_count: int,
+        success_count: int,
+        failed_count: int,
+        skipped_count: int
+    ):
+        """更新批量分析任务进度"""
+        self.conn.execute(
+            """UPDATE batch_analysis_jobs 
+               SET processed_count = ?, success_count = ?, 
+                   failed_count = ?, skipped_count = ?
+               WHERE id = ?""",
+            [processed_count, success_count, failed_count, skipped_count, job_id]
+        )
+    
+    def update_batch_job_total_count(self, job_id: str, total_count: int):
+        """更新批量分析任务的总数"""
+        self.conn.execute(
+            "UPDATE batch_analysis_jobs SET total_count = ? WHERE id = ?",
+            [total_count, job_id]
+        )
+    
+    def get_emails_for_batch_analysis(
+        self, 
+        task_id: str, 
+        filter_keywords: List[str] = None,
+        limit: int = None,
+        offset: int = 0
+    ) -> tuple:
+        """
+        获取用于批量分析的邮件
+        返回: (邮件列表, 被过滤的数量)
+        """
+        # 构建过滤条件
+        filter_sql = ""
+        if filter_keywords:
+            conditions = []
+            for keyword in filter_keywords:
+                escaped = keyword.replace("'", "''")
+                conditions.append(f"subject NOT LIKE '%{escaped}%'")
+            filter_sql = " AND " + " AND ".join(conditions)
+        
+        # 查询符合条件的邮件
+        query = f"""
+            SELECT * FROM emails 
+            WHERE task_id = ? {filter_sql}
+            ORDER BY id
+        """
+        if limit:
+            query += f" LIMIT {limit} OFFSET {offset}"
+        
+        result = self.conn.execute(query, [task_id]).fetchall()
+        columns = ["id", "task_id", "sender", "receiver", "subject", "content", "timestamp"]
+        emails = [dict(zip(columns, row)) for row in result]
+        
+        # 计算被过滤的数量
+        total_query = "SELECT COUNT(*) FROM emails WHERE task_id = ?"
+        total_result = self.conn.execute(total_query, [task_id]).fetchone()
+        total_count = total_result[0] if total_result else 0
+        
+        filtered_query = f"SELECT COUNT(*) FROM emails WHERE task_id = ? {filter_sql}"
+        filtered_result = self.conn.execute(filtered_query, [task_id]).fetchone()
+        filtered_count = filtered_result[0] if filtered_result else 0
+        
+        skipped_count = total_count - filtered_count
+        
+        return emails, skipped_count
+    
+    def get_clusters_for_batch_analysis(self, task_id: str, cluster_type: str) -> List[Dict[str, Any]]:
+        """获取用于批量分析的聚类列表"""
+        if cluster_type == "people":
+            result = self.conn.execute(
+                """SELECT 
+                       LEAST(sender, receiver) as participant1,
+                       GREATEST(sender, receiver) as participant2,
+                       COUNT(*) as email_count
+                   FROM emails 
+                   WHERE task_id = ? AND sender IS NOT NULL AND receiver IS NOT NULL
+                   GROUP BY LEAST(sender, receiver), GREATEST(sender, receiver)
+                   ORDER BY email_count DESC""",
+                [task_id]
+            ).fetchall()
+            
+            return [{"id": f"{row[0]} ↔ {row[1]}", "key": f"{row[0]} ↔ {row[1]}", "count": row[2]} for row in result]
+        else:
+            result = self.conn.execute(
+                """SELECT 
+                       subject,
+                       COUNT(*) as email_count
+                   FROM emails 
+                   WHERE task_id = ? AND subject IS NOT NULL
+                   GROUP BY subject
+                   ORDER BY email_count DESC""",
+                [task_id]
+            ).fetchall()
+            
+            return [{"id": row[0], "key": row[0], "count": row[1]} for row in result]
+    
+    def has_email_analysis(self, email_id: int, analysis_type: str = "batch_summary") -> bool:
+        """检查邮件是否已有指定类型的分析结果"""
+        result = self.conn.execute(
+            """SELECT COUNT(*) FROM analysis_results 
+               WHERE email_id = ? AND analysis_type = ?""",
+            [email_id, analysis_type]
+        ).fetchone()
+        return result[0] > 0 if result else False
     
     def close(self):
         """关闭数据库连接"""

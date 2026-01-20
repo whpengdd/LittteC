@@ -27,34 +27,86 @@ graph TD
 ### 1. 数据摄入模块 (Ingestion Service)
 - **流式上传**: 采用流式（Chunked） 接收前端上传的大文件，避免内存溢出 (OOM)。
 - **分块处理**: 对于 1GB+ 文件，不一次性加载进内存，而是使用 Pandas chunksize 或 DuckDB 直接读取 CSV 功能。
+- **分阶段导入**: 支持两种导入模式：
+  1. **快速导入**: 自动匹配列名，一键上传即导入
+  2. **高级导入（向导模式）**: 
+     - 上传文件后预览列名和样本数据
+     - 用户手动配置字段映射（发件人、收件人、主题、正文、时间戳）
+     - 支持设置过滤规则，排除不需要的数据
+     - 过滤支持精确匹配和关键词包含，以及 AND/OR 逻辑组合
+
+### 1.1 预览服务 (Preview Service)
+- **列名预览**: 使用 DuckDB `read_csv_auto` 读取 CSV 的 schema
+- **样本数据**: 获取前 N 行数据供用户确认字段含义
+- **数据量预览**: 基于用户配置的过滤规则，预计算实际将要导入的行数和被排除的行数
+- **文件信息**: 提供文件名、大小、行数等元信息
+- **API 端点**: 
+  - `GET /api/preview/columns`
+  - `POST /api/tasks/preview/count` (过滤后行数统计)
 
 ### 2. 存储模块 (Storage Service)
 - **文件管理**: 统一管理 `data/uploads/` 目录。
 - **任务隔离**: 每个任务可能有独立的 Table 或 View，或者在主表中通过 `task_id` 区分。
+- **临时文件管理**: 高级导入模式下，先保存为临时文件，配置确认后移动到正式目录
 - **清理机制 (Cleaner)**: 删除任务时，执行原子操作：
   1. 删除数据库记录 (`DELETE FROM ... WHERE task_id = ?`)
   2. 删除关联的物理文件。
 
 ### 3. 数据处理模块 (Data Processing)
 - **Email Dedup Service**: 
-  - 集成 `email-reply-parser` 库
-  - 自动识别并去除邮件中的引用回复 (Quotes) 和签名 (Signatures)
-  - 构建去重后的上下文，最大化 Token 利用率
+  - **策略**: 采用“结构清洗 + 内容去重”两级去重策略，在 AI 调用前严格执行。
+  - **第一级（结构清洗）**: 集成 `email-reply-parser` 库，自动识别并去除邮件中的引用回复 (Quotes) 和签名 (Signatures)。
+  - **第二级（内容去重）**: 对清洗后的核心文本进行哈希比对，丢弃完全重复的邮件内容（如发件箱/收件箱备份）。
+  - **目标**: 构建高密度上下文，最大化 Token 利用率，确保 AI 专注于“增量信息”。
 
 ### 4. AI 编排模块 (AI Orchestrator)
 - **统一接口**: 定义 `AIServiceBase` 抽象基类，规范所有 AI 服务提供商接口
+- **Prompt 透传**: 支持 `generate_raw_content` 直接透传完整 Prompt，用于批量分析中的自定义指令场景。
 - **Gemini 实现**: 封装 `google.generativeai`，支持摘要、情感分析、实体提取
 - **Azure 实现**: 封装 `openai.AzureOpenAI`，提供相同的分析能力
-- **配置管理**: 从环境变量读取 API Keys（`GEMINI_API_KEY`, `AZURE_OPENAI_KEY`, `AZURE_ENDPOINT`）
+- **全局配置**: 通过 `ConfigService` 管理全局 LLM 提供商选择，默认使用 Azure
+- **配置管理**: 
+  - 从环境变量 `DEFAULT_LLM_PROVIDER` 读取默认提供商
+  - 支持运行时通过 API 动态切换
 - **Prompt 工程**: 为每种分析类型设计专业的 Prompt 模板
 
+### 4.1 PII 脱敏模块 (PII Masking Service)
+- **数据保护**: 在邮件内容发送给 LLM 前进行敏感信息脱敏，防止 email 地址、手机号等泄露
+- **Token 映射策略**: 将敏感信息替换为可逆的 Token（如 `<EMAIL_001>`, `<PHONE_001>`）
+- **支持类型**:
+  - Email 地址: `zhangsan@company.com` → `<EMAIL_001>`
+  - 手机号: `13812345678`, `+86-138-1234-5678` → `<PHONE_001>`
+  - IP 地址: `192.168.1.100` → `<IP_001>`
+- **语义保留**: LLM 仍能理解"这是一个邮箱"、"这是一个电话"
+- **任务级别一致性**: 同一任务中相同敏感信息使用相同 Token
+- **部分掩码还原**: 支持 `z***n@company.com`, `138****5678` 格式显示
+- **集成点**:
+  - 批量分析服务 (`_analyze_with_retry`)
+  - 聚类分析服务 (`_analyze_cluster_with_retry`)
+  - 单邮件分析函数 (`analyze_single_email`)
+
 ### 4. 分析 API 模块 (Analysis API)
+- **全局模型配置**: 所有分析端点默认使用全局配置的 LLM 提供商
 - **分析端点**:
   - `POST /api/analysis/summarize` - 生成邮件摘要和关键点
   - `POST /api/analysis/sentiment` - 情感分析（positive/negative/neutral）
   - `POST /api/analysis/entities` - 实体提取（人名、组织、地点、日期等）
 - **结果缓存**: 将分析结果保存到 `analysis_results` 表，避免重复调用
 - **模型切换**: 支持前端动态选择使用 Gemini 或 Azure OpenAI
+
+### 5. 批量分析模块 (Batch Analysis)
+- **后台任务执行**: 支持关闭页面后继续运行
+- **并行处理**: 使用 `asyncio.Semaphore` 控制并发度（1-20 可配置）
+- **失败重试**: 指数退避重试机制（最多 5 次）
+- **关键词过滤**: 按主题过滤系统通知、自动回复等邮件
+- **标签提取**: AI 分析时提取 3-5 个核心标签关键词
+- **风险等级**: 评估邮件风险等级（低/中/高）
+- **API 端点**:
+  - `POST /api/batch-analysis/start` - 启动批量分析
+  - `GET /api/batch-analysis/{job_id}/status` - 获取进度
+  - `POST /api/batch-analysis/{job_id}/cancel` - 取消任务
+  - `POST /api/batch-analysis/{job_id}/resume` - 恢复/重启任务
+  - `POST /api/batch-analysis/single` - 单条邮件分析
 
 ## 数据库设计 (Database Schema)
 
@@ -99,6 +151,27 @@ graph TD
 | ai_insight | TEXT | AI 生成的洞察摘要 |
 | model_provider | TEXT | 使用的 AI 模型 (gemini/azure) |
 | analyzed_at | DATETIME | 分析时间 |
+
+### `batch_analysis_jobs` 表 (批量分析任务表)
+| 字段 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| id | UUID | 主键，任务唯一标识 |
+| task_id | UUID | 外键，关联 tasks.id |
+| status | TEXT | 状态 (PENDING/RUNNING/COMPLETED/FAILED/CANCELLED) |
+| prompt | TEXT | 用户自定义的分析 Prompt |
+| filter_keywords | JSON | 过滤关键词列表 |
+| model_provider | TEXT | AI 模型 (gemini/azure) |
+| concurrency | INTEGER | 并行度 |
+| max_retries | INTEGER | 最大重试次数 |
+| total_count | INTEGER | 怖邮件总数 |
+| processed_count | INTEGER | 已处理数量 |
+| success_count | INTEGER | 成功数量 |
+| failed_count | INTEGER | 失败数量 |
+| skipped_count | INTEGER | 跳过数量（关键词过滤） |
+| created_at | DATETIME | 创建时间 |
+| started_at | DATETIME | 开始时间 |
+| completed_at | DATETIME | 完成时间 |
+| error_message | TEXT | 错误信息 |
 
 ## 关键流程
 
@@ -232,6 +305,27 @@ prompt = f"""基于以下邮件往来，生成一个简洁的中文洞察摘要�
 - **动态模型选择**：根据请求参数选择 Gemini 或 Azure
 - **结果持久化**：将分析结果保存到 `analysis_results` 表
 
+#### `backend/api/batch_analysis_api.py`
+**作用**：批量分析 REST API
+- **POST /api/batch-analysis/start**：启动批量分析任务
+- **GET /api/batch-analysis/{job_id}/status**：获取任务状态和进度
+- **POST /api/batch-analysis/{job_id}/cancel**：取消任务
+- **POST /api/batch-analysis/{job_id}/resume**：恢复/重启中断的任务
+- **GET /api/batch-analysis/jobs/{task_id}**：获取任务的所有分析作业
+- **POST /api/batch-analysis/single**：单条邮件分析
+- **GET /api/batch-analysis/defaults**：获取默认配置
+
+#### `backend/services/batch_analysis_service.py`
+**作用**：批量分析核心服务
+- **BatchAnalysisService 类**：管理批量分析任务
+- **create_and_start_job()**：创建并启动后台任务
+- **resume_job()**：基于旧任务配置恢复执行（创建新任务接续进度）
+- **_run_job()**：后台执行分析（asyncio）
+- **_analyze_with_retry()**：带指数退避重试的单封邮件分析
+- **analyze_single_email()**：单条邮件分析函数
+- **JSON 解析**：解析 AI 响应提取 summary、tags、risk_level、key_findings
+- **关键词过滤**：按主题过滤系统通知、自动回复等邮件
+
 #### `backend/api/stats_api.py`
 **作用**：统计 API，为 Dashboard 提供数据
 - **GET /api/stats/{task_id}**：返回邮件总数、时间范围、Top 发件人、邮件趋势
@@ -245,8 +339,20 @@ prompt = f"""基于以下邮件往来，生成一个简洁的中文洞察摘要�
 **作用**：智能洞察 Chat API
 - **POST /api/chat/**：基于邮件数据的 AI 问答
 - **上下文获取**：直接获取最近邮件作为 AI 上下文
-- **双模型支持**：Gemini 2.0 Flash 和 Azure OpenAI
+- **全局模型配置**：使用 `ConfigService` 获取当前 LLM 提供商
 - **环境变量**：`GEMINI_API_KEY`、`AZURE_OPENAI_API_KEY`、`AZURE_OPENAI_ENDPOINT`、`AZURE_OPENAI_DEPLOYMENT_NAME`
+
+#### `backend/services/config_service.py`
+**作用**：全局配置服务
+- **ConfigService 类**：单例模式管理全局配置
+- **get_llm_provider()**：获取当前 LLM 提供商
+- **set_llm_provider()**：设置 LLM 提供商
+- **默认值**：从环境变量 `DEFAULT_LLM_PROVIDER` 读取，默认为 `azure`
+
+#### `backend/api/config_api.py`
+**作用**：配置管理 API
+- **GET /api/config/llm**：获取当前 LLM 配置
+- **PUT /api/config/llm**：更新 LLM 配置
 
 ### 前端文件 (Frontend)
 
@@ -255,6 +361,7 @@ prompt = f"""基于以下邮件往来，生成一个简洁的中文洞察摘要�
 - **任务创建表单**：支持文件选择和上传
 - **任务列表**：显示任务状态（带颜色标识）
 - **功能入口**：仪表盘、名录、分析、问答四个按钮
+- **全局设置**：提供 LLM 提供商切换入口（⚙️ 图标按钮）
 - **删除功能**：带确认对话框的任务删除
 - **API 交互**：使用 Axios 与后端通信
 
@@ -262,19 +369,39 @@ prompt = f"""基于以下邮件往来，生成一个简洁的中文洞察摘要�
 **作用**：邮件分析主界面组件
 - **三栏布局**：邮件列表 | 邮件详情 | 分析结果
 - **邮件选择**：点击邮件列表项查看详情和分析
-- **模型切换**：支持在 Gemini 和 Azure 之间切换
+- **全局模型配置**：使用后端全局设置的 LLM 提供商
 - **三种分析功能**：
   - 📄 生成摘要：提取邮件核心内容和关键点
   - 😊 情感分析：识别邮件的情感倾向和置信度
   - 🏷️ 实体提取：提取人名、组织、地点等关键实体
+- **批量分析集成**：
+  - 🚀 开始全部分析按钮：启动 BatchAnalysisModal 配置弹窗
+  - 进度监控：集成 BatchAnalysisProgress 组件
+  - 标签显示：渲染 AI 分析结果的 tags 和 risk_level
 - **结果展示**：美观的卡片式展示，区分不同分析类型
 - **加载状态**：分析过程中显示加载动画
 - **数据修复**：正确处理后端 API 返回的 `{"emails": [...]}` 格式
 
+#### `frontend/src/components/BatchAnalysisModal.tsx`
+**作用**：批量分析配置弹窗组件
+- **三步配置流程**：
+  1. Prompt 配置：自定义分析任务
+  2. 过滤关键词：添加/删除过滤词
+  3. 执行参数：模型选择、并行度、重试次数
+- **标签式关键词管理**：可视化添加和删除
+- **步骤指示器**：进度可视化
+
+#### `frontend/src/components/BatchAnalysisProgress.tsx`
+**作用**：批量分析进度监控组件
+- **实时轮询**：每 2 秒刷新状态
+- **进度条**：可视化显示分析进度
+- **统计数据**：总数、成功、失败、跳过
+- **取消功能**：支持中途取消任务
+
 #### `frontend/src/components/InsightChat.tsx`
 **作用**：智能洞察聊天组件
 - **聊天界面**：消息气泡展示对话历史
-- **模型切换**：下拉框选择 Gemini 或 Azure
+- **全局模型配置**：使用后端全局设置的 LLM 提供商
 - **上下文显示**：显示 AI 引用的相关邮件
 - **对话管理**：清空对话功能
 

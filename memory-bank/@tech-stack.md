@@ -9,7 +9,11 @@
 - **语言**: Python (利用其强大的数据处理生态)
 - **Web 框架**: FastAPI (高性能，支持异步流式上传)
 - **依赖管理**: pip / venv
-- **数据处理**: `email-reply-parser` (邮件去重/清洗)
+- **数据处理**: 
+  - `email-reply-parser` (邮件去重/清洗)
+  - `pytz` (时区处理)
+- **数据安全**:
+  - 自研 `pii_masking_service` (PII 脱敏 - Email/手机号/IP 地址)
 
 ## 数据存储 (Storage)
 - **结构化数据**: DuckDB (首选) 或 SQLite

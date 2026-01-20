@@ -8,6 +8,7 @@ from typing import List, Optional
 import os
 import io
 import csv
+import json
 
 from services.db_service import get_db_service
 
@@ -140,20 +141,43 @@ async def analyze_clusters(request: ClusterAnalyzeRequest):
             from services.email_dedup_service import EmailDedupService
             context = EmailDedupService.build_deduped_context(emails)
             
-            # 生成洞察
-            prompt = f"""基于以下邮件往来，生成一个简洁的中文洞察摘要（50字以内），包括：
-1. 主要话题/主题
-2. 交流特点或关系
-3. 关键信息点
+            # 生成洞察 - 返回 JSON 格式的结构化数据
+            prompt = f"""基于以下邮件往来，以 JSON 格式返回分析结果：
+{{
+    "risk_level": "低/中/高",
+    "summary": "100字以内的核心内容简述",
+    "tags": ["标签1", "标签2", "标签3"],
+    "key_findings": "如有敏感或合规相关内容，请说明；否则留空"
+}}
 
 邮件内容：
 {context}
 
-请直接输出摘要，不要有多余的前缀或解释。"""
+请只输出 JSON，不要有任何前缀或解释。"""
             
-            # 使用摘要功能生成洞察 (异步调用)
-            insight_result = await ai_service.summarize(prompt)
-            ai_insight = insight_result.summary if hasattr(insight_result, 'summary') else str(insight_result)
+            # 使用 generate_raw_content 直接发送 Prompt，避免被 summarize 的模板包裹
+            raw_insight = await ai_service.generate_raw_content(prompt)
+            
+            # 尝试解析 JSON，如果失败则保持原始格式
+            try:
+                # 清理可能的 markdown 代码块
+                cleaned = raw_insight.strip()
+                if cleaned.startswith("```json"):
+                    cleaned = cleaned[7:]
+                if cleaned.startswith("```"):
+                    cleaned = cleaned[3:]
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+                parsed = json.loads(cleaned.strip())
+                ai_insight = json.dumps(parsed, ensure_ascii=False)
+            except json.JSONDecodeError:
+                # JSON 解析失败，使用纯文本格式
+                ai_insight = json.dumps({
+                    "risk_level": "低",
+                    "summary": raw_insight[:100] if len(raw_insight) > 100 else raw_insight,
+                    "tags": [],
+                    "key_findings": ""
+                }, ensure_ascii=False)
             
             # 保存洞察结果
             db.save_cluster_insight(

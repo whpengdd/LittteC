@@ -121,80 +121,6 @@ async def list_tasks():
     return [TaskResponse(**task) for task in tasks]
 
 
-@router.get("/{task_id}", response_model=TaskResponse)
-async def get_task(task_id: str):
-    """获取单个任务详情"""
-    db_service = get_db_service()
-    task = db_service.get_task(task_id)
-    
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    return TaskResponse(**task)
-
-
-@router.delete("/{task_id}")
-async def delete_task(task_id: str):
-    """
-    删除任务（级联删除）
-    1. 删除数据库中的邮件记录
-    2. 删除数据库中的任务记录
-    3. 删除磁盘上的文件
-    """
-    db_service = get_db_service()
-    storage_service = get_storage_service()
-    
-    # 检查任务是否存在
-    task = db_service.get_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    # 删除数据库记录（包括关联的邮件）
-    db_service.delete_task(task_id)
-    
-    # 删除磁盘文件
-    storage_service.delete_task_files(task_id)
-    
-    return {"message": f"Task {task_id} deleted successfully"}
-
-
-@router.get("/{task_id}/emails")
-async def get_task_emails(task_id: str, limit: int = 100, offset: int = 0):
-    """获取任务的邮件记录"""
-    db_service = get_db_service()
-    
-    # 检查任务是否存在
-    task = db_service.get_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    emails = db_service.get_emails_by_task(task_id, limit, offset)
-    return {"emails": emails, "limit": limit, "offset": offset}
-
-
-def process_file_import(task_id: str, file_path: str, filename: str):
-    """
-    后台任务：处理文件导入（旧版，兼容自动映射导入）
-    
-    Args:
-        task_id: 任务 ID
-        file_path: 文件路径
-        filename: 文件名
-    """
-    db_service = get_db_service()
-    
-    try:
-        # 根据文件扩展名确定文件类型
-        file_ext = Path(filename).suffix.lower().lstrip(".")
-        
-        # 导入文件到数据库
-        db_service.ingest_file(task_id, file_path, file_ext)
-        
-    except Exception as e:
-        print(f"Error processing file import for task {task_id}: {e}")
-        db_service.update_task_status(task_id, "FAILED")
-
-
 # ==================== 分阶段导入 API ====================
 
 # 临时文件存储（用于存储上传后待确认导入的文件信息）
@@ -257,7 +183,36 @@ async def upload_file(file: UploadFile = File(...)):
         storage_service.delete_task_files(f"temp_{temp_file_id}")
         raise HTTPException(status_code=400, detail=f"文件解析失败: {str(e)}")
 
+class FilterPreviewRequest(BaseModel):
+    """过滤预览请求"""
+    temp_file_id: str
+    filter: FilterConfig
 
+
+@router.post("/preview/count")
+async def get_filtered_count(request: FilterPreviewRequest):
+    """
+    获取应用过滤规则后的预计数据行数
+    """
+    if request.temp_file_id not in _temp_files:
+        raise HTTPException(
+            status_code=404, 
+            detail="临时文件不存在或已过期"
+        )
+    
+    temp_file_info = _temp_files[request.temp_file_id]
+    file_path = temp_file_info["file_path"]
+    
+    preview_service = get_preview_service()
+    
+    try:
+        # 将 Pydantic 模型转为 dict
+        filter_dict = request.filter.model_dump()
+        
+        count = preview_service.get_filtered_row_count(file_path, filter_dict)
+        return {"count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"统计失败: {str(e)}")
 @router.post("/import", response_model=TaskResponse)
 async def import_with_config(
     config: ImportConfig,
@@ -373,6 +328,80 @@ def process_file_import_with_config(
             mapping,
             filter_config
         )
+        
+    except Exception as e:
+        print(f"Error processing file import for task {task_id}: {e}")
+        db_service.update_task_status(task_id, "FAILED")
+
+
+@router.get("/{task_id}", response_model=TaskResponse)
+async def get_task(task_id: str):
+    """获取单个任务详情"""
+    db_service = get_db_service()
+    task = db_service.get_task(task_id)
+    
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    return TaskResponse(**task)
+
+
+@router.delete("/{task_id}")
+async def delete_task(task_id: str):
+    """
+    删除任务（级联删除）
+    1. 删除数据库中的邮件记录
+    2. 删除数据库中的任务记录
+    3. 删除磁盘上的文件
+    """
+    db_service = get_db_service()
+    storage_service = get_storage_service()
+    
+    # 检查任务是否存在
+    task = db_service.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # 删除数据库记录（包括关联的邮件）
+    db_service.delete_task(task_id)
+    
+    # 删除磁盘文件
+    storage_service.delete_task_files(task_id)
+    
+    return {"message": f"Task {task_id} deleted successfully"}
+
+
+@router.get("/{task_id}/emails")
+async def get_task_emails(task_id: str, limit: int = 100, offset: int = 0):
+    """获取任务的邮件记录"""
+    db_service = get_db_service()
+    
+    # 检查任务是否存在
+    task = db_service.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    emails = db_service.get_emails_by_task(task_id, limit, offset)
+    return {"emails": emails, "limit": limit, "offset": offset}
+
+
+def process_file_import(task_id: str, file_path: str, filename: str):
+    """
+    后台任务：处理文件导入（旧版，兼容自动映射导入）
+    
+    Args:
+        task_id: 任务 ID
+        file_path: 文件路径
+        filename: 文件名
+    """
+    db_service = get_db_service()
+    
+    try:
+        # 根据文件扩展名确定文件类型
+        file_ext = Path(filename).suffix.lower().lstrip(".")
+        
+        # 导入文件到数据库
+        db_service.ingest_file(task_id, file_path, file_ext)
         
     except Exception as e:
         print(f"Error processing file import for task {task_id}: {e}")

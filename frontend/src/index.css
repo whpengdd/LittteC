@@ -2,13 +2,301 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ========== 设计系统变量 ========== */
+:root {
+  /* 主色调 */
+  --primary-gradient: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%);
+  --primary-purple: #8B5CF6;
+  --primary-indigo: #6366F1;
+
+  /* 统计卡片图标背景色 */
+  --stat-green: #10B981;
+  --stat-green-light: #D1FAE5;
+  --stat-yellow: #F59E0B;
+  --stat-yellow-light: #FEF3C7;
+  --stat-orange: #F97316;
+  --stat-orange-light: #FFEDD5;
+  --stat-blue: #3B82F6;
+  --stat-blue-light: #DBEAFE;
+
+  /* 背景色 */
+  --bg-main: #F8FAFC;
+  --bg-card: #FFFFFF;
+
+  /* 文字颜色 */
+  --text-primary: #1E293B;
+  --text-secondary: #64748B;
+  --text-muted: #94A3B8;
+
+  /* 边框和阴影 */
+  --border-light: #E2E8F0;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-main);
+}
+
+/* ========== 渐变按钮 ========== */
+.btn-gradient {
+  background: var(--primary-gradient);
+  color: white;
+  border: none;
+  padding: 0.625rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+}
+
+.btn-gradient:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+}
+
+.btn-gradient:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ========== 统计卡片 ========== */
+.stat-card {
+  background: var(--bg-card);
+  border-radius: 0.75rem;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.2s ease;
+}
+
+.stat-card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+.stat-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+}
+
+.stat-icon.green {
+  background: var(--stat-green-light);
+  color: var(--stat-green);
+}
+
+.stat-icon.yellow {
+  background: var(--stat-yellow-light);
+  color: var(--stat-yellow);
+}
+
+.stat-icon.orange {
+  background: var(--stat-orange-light);
+  color: var(--stat-orange);
+}
+
+.stat-icon.blue {
+  background: var(--stat-blue-light);
+  color: var(--stat-blue);
+}
+
+.stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-top: 0.25rem;
+}
+
+/* ========== 用户头像 ========== */
+.avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: white;
+  flex-shrink: 0;
+}
+
+.avatar.sender {
+  background: #6366F1;
+}
+
+.avatar.receiver {
+  background: #EC4899;
+}
+
+.avatar.unknown {
+  background: #94A3B8;
+}
+
+/* ========== 表格优化 ========== */
+.data-table {
+  width: 100%;
+  background: var(--bg-card);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+.data-table thead {
+  background: #F8FAFC;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.data-table th {
+  padding: 0.875rem 1rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.data-table td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.data-table tbody tr:hover {
+  background: #F8FAFC;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ========== 参与者列样式 ========== */
+.participant-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.participant-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.participant-name {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.participant-email {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.arrow-indicator {
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  margin: 0 0.5rem;
+}
+
+/* ========== 状态徽章 ========== */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.badge.success {
+  background: #D1FAE5;
+  color: #059669;
+}
+
+.badge.warning {
+  background: #FEF3C7;
+  color: #D97706;
+}
+
+.badge.info {
+  background: #DBEAFE;
+  color: #2563EB;
+}
+
+.badge.neutral {
+  background: #F1F5F9;
+  color: #64748B;
+}
+
+/* ========== 链接样式 ========== */
+.link-primary {
+  color: #3B82F6;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link-primary:hover {
+  color: #2563EB;
+  text-decoration: underline;
+}
+
+/* ========== 图标按钮 ========== */
+.icon-btn {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.375rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.icon-btn:hover {
+  background: #F1F5F9;
+  color: var(--text-primary);
+}
+
+.icon-btn.primary:hover {
+  background: #EEF2FF;
+  color: #6366F1;
+}
+
+.icon-btn.danger:hover {
+  background: #FEE2E2;
+  color: #DC2626;
 }
 
 @keyframes slide-in {

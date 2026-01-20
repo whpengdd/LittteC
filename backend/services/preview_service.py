@@ -127,6 +127,49 @@ class PreviewService:
             }
 
 
+    @staticmethod
+    def get_filtered_row_count(file_path: str, filter_config: Dict[str, Any]) -> int:
+        """
+        获取过滤后的数据行数
+        
+        Args:
+            file_path: 文件路径
+            filter_config: 过滤配置
+            
+        Returns:
+            满足条件（未被过滤）的行数
+        """
+        from services.db_service import DBService
+        
+        conn = duckdb.connect(":memory:")
+        try:
+            # 构建过滤 WHERE 子句
+            where_sql = DBService.build_filter_where_clause(filter_config)
+            
+            # 计算行数
+            # 注意：build_filter_where_clause 返回的 logic 是过滤排除的逻辑
+            # 但我们需要的是 *剩余* 的行数，也就是 *不* 满足过滤条件的行数吗？
+            # 仔细看 build_filter_where_clause 的注释：
+            # "构建过滤条件的 WHERE 子句... 排除符合条件的记录"
+            # 
+            # 让我们复查一下 db_service.py:
+            # where_parts.append(f'("{field}" != \'{escaped_value}\')')  --> 这是保留不等于的
+            # 
+            # 再次检查 db_service 逻辑：
+            # if match_type == "exact": where_parts.append(f'("{field}" != \'{escaped_value}\' OR "{field}" IS NULL)')
+            # 这里的语义是：保留那些（字段 != 值 或者 字段为空）的记录。即排除（字段 == 值）的记录。
+            # 
+            # 所以 build_filter_where_clause 返回的 SQL 是用来 SELECT 那些 **应该被保留** 的记录的。
+            # 直接使用这个 WHERE 子句即可统计剩余行数。
+            
+            result = conn.execute(
+                f"SELECT COUNT(*) FROM read_csv_auto('{file_path}') {where_sql}"
+            )
+            return result.fetchone()[0]
+        finally:
+            conn.close()
+
+
 # 全局预览服务实例
 _preview_service: Optional[PreviewService] = None
 

@@ -33,6 +33,14 @@ class EntityResult(BaseModel):
     entities: list[Dict[str, str]]  # [{"type": "PERSON", "value": "张三"}, ...]
 
 
+class EmailAnalysisResult(BaseModel):
+    """邮件综合分析结果"""
+    summary: str
+    risk_level: str  # "Low", "Medium", "High" or localized
+    tags: list[str]
+    key_findings: Optional[str] = ""
+    key_points: Optional[list[str]] = []
+
 class AIServiceBase(ABC):
     """
     AI 服务抽象基类
@@ -41,6 +49,47 @@ class AIServiceBase(ABC):
     
     def __init__(self, model_name: str):
         self.model_name = model_name
+    
+    @staticmethod
+    def parse_json_response(text: str) -> Dict[str, Any]:
+        """
+        通用 JSON 解析帮助函数
+        处理 markdown 代码块、前后空白等问题
+        """
+        import json
+        import re
+        
+        try:
+            text = text.strip()
+            # 移除 markdown 代码块标记
+            if text.startswith("```"):
+                # 找到第一个换行符
+                first_newline = text.find("\n")
+                if first_newline != -1:
+                    # 检查是否有语言标记 (如 ```json)
+                    first_line = text[:first_newline].strip()
+                    if first_line.startswith("```"):
+                        text = text[first_newline+1:]
+                
+                # 移除结尾的 ```
+                if text.endswith("```"):
+                    text = text[:-3]
+            
+            # 再次清理可能的前后空白
+            text = text.strip()
+            
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # 尝试使用正则提取 JSON 对象
+            json_match = re.search(r'\{[\s\S]*\}', text)
+            if json_match:
+                try:
+                    return json.loads(json_match.group())
+                except:
+                    pass
+            # 如果都失败了，抛出异常或返回空字典，视具体需求而定
+            # 这里抛出异常以便上层处理
+            raise
     
     @abstractmethod
     async def summarize(self, text: str, max_length: int = 150) -> SummaryResult:
@@ -79,6 +128,33 @@ class AIServiceBase(ABC):
             
         Returns:
             EntityResult: 包含提取到的实体列表
+        """
+        pass
+
+    @abstractmethod
+    async def analyze_email(self, content: str, prompt_template: str = None) -> EmailAnalysisResult:
+        """
+        综合分析邮件（摘要、风险、标签、关键发现）
+
+        Args:
+            content: 邮件内容
+            prompt_template: 可选的自定义 prompt 模板
+
+        Returns:
+            EmailAnalysisResult: 综合分析结果
+        """
+        pass
+    
+    @abstractmethod
+    async def generate_raw_content(self, prompt: str) -> str:
+        """
+        生成原始内容（直接使用 Prompt，不套用模板）
+        
+        Args:
+            prompt: 完整的 Prompt
+            
+        Returns:
+            str: 生成的文本内容
         """
         pass
     

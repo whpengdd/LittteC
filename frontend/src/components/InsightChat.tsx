@@ -29,7 +29,6 @@ const InsightChat: React.FC<InsightChatProps> = ({ taskId, taskName, onClose }) 
     ]);
     const [inputValue, setInputValue] = useState('');
     const [loading, setLoading] = useState(false);
-    const [selectedModel, setSelectedModel] = useState<'gemini' | 'azure'>('gemini');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -61,8 +60,7 @@ const InsightChat: React.FC<InsightChatProps> = ({ taskId, taskName, onClose }) 
         try {
             const response = await axios.post('/api/chat/', {
                 task_id: taskId,
-                question: userMessage.content,
-                model: selectedModel
+                question: userMessage.content
             });
 
             const assistantMessage: Message = {
@@ -106,15 +104,6 @@ const InsightChat: React.FC<InsightChatProps> = ({ taskId, taskName, onClose }) 
                         </div>
                     </div>
                     <div className="flex items-center space-x-3">
-                        {/* Model Selector */}
-                        <select
-                            value={selectedModel}
-                            onChange={(e) => setSelectedModel(e.target.value as 'gemini' | 'azure')}
-                            className="bg-white/20 text-white border border-white/30 rounded-lg px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-white/50"
-                        >
-                            <option value="gemini" className="text-gray-800">Gemini</option>
-                            <option value="azure" className="text-gray-800">Azure OpenAI</option>
-                        </select>
                         <button
                             onClick={onClose}
                             className="text-white hover:text-gray-200 text-3xl font-bold leading-none"
@@ -133,8 +122,8 @@ const InsightChat: React.FC<InsightChatProps> = ({ taskId, taskName, onClose }) 
                         >
                             <div
                                 className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.role === 'user'
-                                        ? 'bg-amber-500 text-white rounded-br-md'
-                                        : 'bg-white text-gray-800 shadow-sm border border-gray-200 rounded-bl-md'
+                                    ? 'bg-amber-500 text-white rounded-br-md'
+                                    : 'bg-white text-gray-800 shadow-sm border border-gray-200 rounded-bl-md'
                                     }`}
                             >
                                 {/* Message Avatar */}
@@ -230,7 +219,7 @@ const InsightChat: React.FC<InsightChatProps> = ({ taskId, taskName, onClose }) 
                         </button>
                     </form>
                     <p className="text-xs text-gray-400 mt-2 text-center">
-                        使用 {selectedModel === 'gemini' ? 'Google Gemini' : 'Azure OpenAI'} 模型
+                        使用全局配置的 AI 模型
                     </p>
                 </div>
             </div>

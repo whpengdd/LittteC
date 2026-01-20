@@ -11,7 +11,8 @@ from .ai_base import (
     AIServiceBase, 
     SummaryResult, 
     SentimentResult, 
-    EntityResult
+    EntityResult,
+    EmailAnalysisResult
 )
 
 
@@ -58,15 +59,7 @@ class GeminiService(AIServiceBase):
                 }
             )
             
-            # 解析 JSON 响应
-            result_text = response.text.strip()
-            # 移除可能的 markdown 代码块标记
-            if result_text.startswith("```"):
-                result_text = result_text.split("```")[1]
-                if result_text.startswith("json"):
-                    result_text = result_text[4:]
-            
-            result = json.loads(result_text.strip())
+            result = self.parse_json_response(response.text)
             
             return SummaryResult(
                 summary=result.get("summary", ""),
@@ -76,7 +69,7 @@ class GeminiService(AIServiceBase):
         except json.JSONDecodeError:
             # 如果 JSON 解析失败，直接使用原始文本
             return SummaryResult(
-                summary=response.text[:max_length],
+                summary=response.text[:max_length] if 'response' in locals() else "",
                 key_points=None
             )
         except Exception as e:
@@ -106,14 +99,7 @@ class GeminiService(AIServiceBase):
                 generation_config={"temperature": 0.2}
             )
             
-            result_text = response.text.strip()
-            # 清理 markdown 格式
-            if result_text.startswith("```"):
-                result_text = result_text.split("```")[1]
-                if result_text.startswith("json"):
-                    result_text = result_text[4:]
-            
-            result = json.loads(result_text.strip())
+            result = self.parse_json_response(response.text)
             
             return SentimentResult(
                 label=result.get("label", "neutral"),
@@ -157,15 +143,80 @@ class GeminiService(AIServiceBase):
                 generation_config={"temperature": 0.1}
             )
             
-            result_text = response.text.strip()
-            if result_text.startswith("```"):
-                result_text = result_text.split("```")[1]
-                if result_text.startswith("json"):
-                    result_text = result_text[4:]
-            
-            result = json.loads(result_text.strip())
+            result = self.parse_json_response(response.text)
             
             return EntityResult(entities=result.get("entities", []))
         
         except Exception as e:
             return EntityResult(entities=[])
+
+    async def analyze_email(self, content: str, prompt_template: str = None) -> EmailAnalysisResult:
+        """
+        综合分析邮件
+        """
+        if not prompt_template:
+            prompt_template = """请分析以下邮件内容，重点关注：
+1. 是否涉及敏感信息（如密码、账号、财务数据、个人隐私等）
+2. 是否存在合规风险（如未授权数据传输、违规操作等）
+3. 主要话题和关键信息点
+4. 提取 3-5 个核心标签关键词（用于快速概览）
+
+请以 JSON 格式返回分析结果：
+{
+    "risk_level": "低/中/高",
+    "summary": "100字以内的核心内容简述",
+    "tags": ["标签1", "标签2", "标签3"],
+    "key_findings": "如有敏感或合规相关内容"
+}
+
+邮件内容：
+{content}
+
+请直接返回 JSON，不要添加任何解释。所有内容（包括摘要、标签、关键发现）必须使用**简体中文**。"""
+
+        prompt = prompt_template.replace("{content}", content[:3000])
+
+        try:
+            response = await asyncio.to_thread(
+                self.model.generate_content,
+                prompt,
+                generation_config={
+                    "temperature": 0.3,
+                    "max_output_tokens": 1000
+                }
+            )
+            
+            result = self.parse_json_response(response.text)
+            
+            return EmailAnalysisResult(
+                summary=result.get("summary", ""),
+                risk_level=result.get("risk_level", "Low"),
+                tags=result.get("tags", []),
+                key_findings=result.get("key_findings", ""),
+                key_points=result.get("key_points", [])
+            )
+        except Exception as e:
+            print(f"Gemini analyze_email failed: {e}")
+            return EmailAnalysisResult(
+                summary="分析失败",
+                risk_level="Unknown",
+                tags=[],
+                key_findings=f"Error: {str(e)}"
+            )
+
+    async def generate_raw_content(self, prompt: str) -> str:
+        """
+        生成原始内容（直接使用 Prompt）
+        """
+        try:
+            response = await asyncio.to_thread(
+                self.model.generate_content,
+                prompt,
+                generation_config={
+                    "temperature": 0.3,
+                    "max_output_tokens": 1000  # 增加输出长度限制，防止截断
+                }
+            )
+            return response.text
+        except Exception as e:
+            raise RuntimeError(f"Gemini API 调用失败: {str(e)}")
