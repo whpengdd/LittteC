@@ -19,7 +19,12 @@ from api.config_api import router as config_router
 from api.batch_analysis_api import router as batch_analysis_router
 
 # 加载环境变量
+# 加载环境变量
 load_dotenv()
+
+# 确保 data 目录存在
+os.makedirs('data', exist_ok=True)
+
 
 # 创建 FastAPI 应用
 app = FastAPI(

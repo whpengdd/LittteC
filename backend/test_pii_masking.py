@@ -8,7 +8,8 @@ PII 脱敏功能测试脚本
 4. 部分掩码还原
 """
 import sys
-sys.path.append('/Users/whpeng/workspace/student c/backend')
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from services.pii_masking_service import PIIMaskingService
 
