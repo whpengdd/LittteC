@@ -91,7 +91,7 @@ cat << 'EOF' > $RELEASE_DIR/run_server.sh
 cd backend
 source venv/bin/activate
 # Run with uvicorn in production mode (no reload)
-uvicorn main:app --host 0.0.0.0 --port 8000
+uvicorn main:app --host 0.0.0.0 --port 3002
 EOF
 chmod +x $RELEASE_DIR/run_server.sh
 

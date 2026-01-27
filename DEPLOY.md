@@ -41,7 +41,7 @@ nano backend/.env
 ```bash
 ./run_server.sh
 ```
-如果看到 `Uvicorn running on http://0.0.0.0:8000` 说明后端启动成功。按 `Ctrl+C` 停止。
+如果看到 `Uvicorn running on http://0.0.0.0:3002` 说明后端启动成功。按 `Ctrl+C` 停止。
 
 ## 3. 生产环境运行 (Systemd)
 
@@ -58,7 +58,7 @@ After=network.target
 User=root
 WorkingDirectory=/opt/student_c/backend
 # 注意修改下面的路径为实际路径
-ExecStart=/opt/student_c/backend/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/student_c/backend/venv/bin/uvicorn main:app --host 0.0.0.0 --port 3002
 Restart=always
 
 [Install]
@@ -94,18 +94,18 @@ server {
 
     # 后端 API 转发
     location /api/ {
-        proxy_pass http://127.0.0.1:8000;  # 注意后端没有 /api 前缀需要对应
+        proxy_pass http://127.0.0.1:3002;  # 注意后端没有 /api 前缀需要对应
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
     
     # Swagger 文档转发 (可选)
     location /docs {
-        proxy_pass http://127.0.0.1:8000/docs;
+        proxy_pass http://127.0.0.1:3002/docs;
     }
     
     location /openapi.json {
-        proxy_pass http://127.0.0.1:8000/openapi.json;
+        proxy_pass http://127.0.0.1:3002/openapi.json;
     }
 }
 ```

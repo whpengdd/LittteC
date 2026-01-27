@@ -1,1 +1,41 @@
-/sample_emails.csv
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+
+# ===== Node =====
+node_modules/
+dist/
+
+# ===== Environment =====
+.env
+.env.local
+.env.*.local
+
+# ===== Database =====
+*.duckdb
+*.duckdb.wal
+
+# ===== Data =====
+data/
+sample_emails.csv
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Build / Logs =====
+*.log

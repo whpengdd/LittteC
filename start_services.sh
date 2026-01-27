@@ -23,9 +23,9 @@ else
 fi
 
 # Start Backend in background
-uvicorn main:app --reload --host 0.0.0.0 --port 8000 &
+uvicorn main:app --reload --host 0.0.0.0 --port 3002 &
 BACKEND_PID=$!
-echo "Backend running on port 8000 (PID: $BACKEND_PID)"
+echo "Backend running on port 3002 (PID: $BACKEND_PID)"
 
 cd "$SCRIPT_DIR/frontend"
 echo "Starting Frontend..."
