@@ -20,7 +20,7 @@ class ClusterAnalyzeRequest(BaseModel):
     task_id: str
     cluster_type: str  # "people" or "subjects"
     cluster_keys: List[str]  # 要分析的聚类键列表
-    model: str = "gemini"  # "gemini" or "azure"
+    model: str = "azure"  # 仅支持 "azure"
 
 
 @router.get("/people/{task_id}")
@@ -104,13 +104,9 @@ async def analyze_clusters(request: ClusterAnalyzeRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
     
-    # 选择 AI 服务
-    if request.model == "azure":
-        from services.azure_service import AzureService
-        ai_service = AzureService()
-    else:
-        from services.gemini_service import GeminiService
-        ai_service = GeminiService()
+    # 仅使用 Azure 服务
+    from services.azure_service import AzureService
+    ai_service = AzureService()
     
     results = []
     
@@ -185,7 +181,7 @@ async def analyze_clusters(request: ClusterAnalyzeRequest):
                 request.cluster_type,
                 cluster_key,
                 ai_insight,
-                request.model
+                "azure"  # 固定使用 Azure
             )
             
             results.append({

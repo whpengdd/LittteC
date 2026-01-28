@@ -68,7 +68,7 @@ class BatchAnalysisService:
             task_id: 邮件任务 ID
             prompt: 分析 Prompt，为空则使用默认模板
             filter_keywords: 过滤关键词列表
-            model: AI 模型 (gemini/azure)
+            model: AI 模型 (仅支持 azure)
             concurrency: 并行度
             max_retries: 最大重试次数
             analysis_type: 分析类型 ("email", "people_cluster", "subject_cluster")
@@ -365,14 +365,10 @@ class BatchAnalysisService:
         
         return None
     
-    def _get_ai_service(self, model: str):
-        """获取 AI 服务实例"""
-        if model == "azure":
-            from services.azure_service import AzureService
-            return AzureService()
-        else:
-            from services.gemini_service import GeminiService
-            return GeminiService()
+    def _get_ai_service(self, model: str = "azure"):
+        """获取 AI 服务实例 (仅支持 Azure)"""
+        from services.azure_service import AzureService
+        return AzureService()
     
     def get_job_status(self, job_id: str) -> Optional[Dict[str, Any]]:
         """获取任务状态"""
@@ -514,13 +510,9 @@ async def analyze_single_email(
     if model is None:
         model = get_config_service().get_llm_provider()
     
-    # 获取 AI 服务
-    if model == "azure":
-        from services.azure_service import AzureService
-        ai_service = AzureService()
-    else:
-        from services.gemini_service import GeminiService
-        ai_service = GeminiService()
+    # 获取 AI 服务 (仅支持 Azure)
+    from services.azure_service import AzureService
+    ai_service = AzureService()
     
     # 构建分析文本
     raw_text = f"主题: {email.get('subject', '无主题')}\n\n{email.get('content', '')}"

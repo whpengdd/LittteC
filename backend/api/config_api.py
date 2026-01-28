@@ -19,7 +19,7 @@ class LLMConfigResponse(BaseModel):
 
 class LLMConfigRequest(BaseModel):
     """LLM 配置更新请求"""
-    provider: Literal["gemini", "azure"]
+    provider: Literal["azure"]  # 仅支持 Azure
 
 
 @router.get("/llm", response_model=LLMConfigResponse)
@@ -32,7 +32,7 @@ async def get_llm_config():
     config = get_config_service()
     return LLMConfigResponse(
         provider=config.get_llm_provider(),
-        available_providers=["gemini", "azure"]
+        available_providers=["azure"]
     )
 
 
@@ -48,7 +48,7 @@ async def update_llm_config(request: LLMConfigRequest):
         config.set_llm_provider(request.provider)
         return LLMConfigResponse(
             provider=config.get_llm_provider(),
-            available_providers=["gemini", "azure"]
+            available_providers=["azure"]
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

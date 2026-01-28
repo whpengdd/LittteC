@@ -52,7 +52,7 @@ function App() {
 
     // 全局 LLM 设置状态
     const [showSettings, setShowSettings] = useState(false);
-    const [llmConfig, setLlmConfig] = useState<{ provider: string; available_providers: string[] }>({ provider: 'azure', available_providers: ['gemini', 'azure'] });
+    const [llmConfig, setLlmConfig] = useState<{ provider: string; available_providers: string[] }>({ provider: 'azure', available_providers: ['azure'] });
     const [settingsLoading, setSettingsLoading] = useState(false);
 
     // Standalone View Mode State
@@ -112,7 +112,7 @@ function App() {
         try {
             const response = await axios.put('/api/config/llm', { provider });
             setLlmConfig(response.data);
-            showToast(`AI 模型已切换为 ${provider === 'azure' ? 'Azure OpenAI' : 'Google Gemini'}`, 'success');
+            showToast('AI 模型已设置为 Azure OpenAI', 'success');
         } catch (error) {
             console.error('Failed to update LLM config:', error);
             showToast('修改失败，请重试', 'error');
@@ -646,37 +646,20 @@ function App() {
                                         AI 模型选择
                                     </label>
                                     <div className="space-y-3">
-                                        <label className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-all ${llmConfig.provider === 'azure' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                                        <label className="flex items-center p-4 rounded-lg border-2 border-indigo-500 bg-indigo-50">
                                             <input
                                                 type="radio"
                                                 name="llm-provider"
                                                 value="azure"
-                                                checked={llmConfig.provider === 'azure'}
-                                                onChange={() => updateLLMConfig('azure')}
-                                                disabled={settingsLoading}
+                                                checked={true}
+                                                readOnly
                                                 className="form-radio text-indigo-600 h-4 w-4"
                                             />
                                             <div className="ml-3">
                                                 <span className="font-medium" style={{ color: 'var(--text-primary)' }}>Azure OpenAI</span>
-                                                <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>推荐，默认选项</p>
+                                                <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>默认 AI 提供商</p>
                                             </div>
-                                            {llmConfig.provider === 'azure' && <span className="ml-auto text-indigo-600">✓</span>}
-                                        </label>
-                                        <label className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-all ${llmConfig.provider === 'gemini' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                                            <input
-                                                type="radio"
-                                                name="llm-provider"
-                                                value="gemini"
-                                                checked={llmConfig.provider === 'gemini'}
-                                                onChange={() => updateLLMConfig('gemini')}
-                                                disabled={settingsLoading}
-                                                className="form-radio text-indigo-600 h-4 w-4"
-                                            />
-                                            <div className="ml-3">
-                                                <span className="font-medium" style={{ color: 'var(--text-primary)' }}>Google Gemini</span>
-                                                <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>Gemini 2.0 Flash</p>
-                                            </div>
-                                            {llmConfig.provider === 'gemini' && <span className="ml-auto text-indigo-600">✓</span>}
+                                            <span className="ml-auto text-indigo-600">✓</span>
                                         </label>
                                     </div>
                                 </div>

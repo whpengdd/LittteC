@@ -28,7 +28,7 @@ const BatchAnalysisModal: React.FC<BatchAnalysisModalProps> = ({
     const [prompt, setPrompt] = useState('');
     const [filterKeywords, setFilterKeywords] = useState<string[]>([]);
     const [newKeyword, setNewKeyword] = useState('');
-    const [model, setModel] = useState<'gemini' | 'azure'>('gemini');
+    const [model, setModel] = useState<'azure'>('azure');
     const [concurrency, setConcurrency] = useState(5);
     const [maxRetries, setMaxRetries] = useState(3);
     const [saveSettings, setSaveSettings] = useState(false);
@@ -244,20 +244,9 @@ const BatchAnalysisModal: React.FC<BatchAnalysisModalProps> = ({
                         <input
                             type="radio"
                             name="model"
-                            value="gemini"
-                            checked={model === 'gemini'}
-                            onChange={() => setModel('gemini')}
-                            className="mr-2"
-                        />
-                        <span className="text-sm">Google Gemini</span>
-                    </label>
-                    <label className="flex items-center cursor-pointer">
-                        <input
-                            type="radio"
-                            name="model"
                             value="azure"
-                            checked={model === 'azure'}
-                            onChange={() => setModel('azure')}
+                            checked={true}
+                            readOnly
                             className="mr-2"
                         />
                         <span className="text-sm">Azure OpenAI</span>
@@ -322,7 +311,7 @@ const BatchAnalysisModal: React.FC<BatchAnalysisModalProps> = ({
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">📋 配置摘要</h4>
                 <ul className="text-sm text-gray-600 space-y-1">
                     <li>• 任务类型: {isClusterAnalysis ? '聚类分析' : '单邮件批量分析'}</li>
-                    <li>• 模型: {model === 'gemini' ? 'Google Gemini' : 'Azure OpenAI'}</li>
+                    <li>• 模型: Azure OpenAI</li>
                     <li>• 并行度: {concurrency} 个并发请求</li>
                     <li>• 重试次数: {maxRetries} 次</li>
                     {!isClusterAnalysis && <li>• 过滤关键词: {filterKeywords.length} 个</li>}

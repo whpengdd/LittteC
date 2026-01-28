@@ -20,37 +20,34 @@ class ConfigService:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            # 从环境变量读取默认 LLM 提供商，默认为 azure
-            cls._instance._llm_provider = os.getenv("DEFAULT_LLM_PROVIDER", "azure").lower()
-            # 验证配置值
-            if cls._instance._llm_provider not in ("gemini", "azure"):
-                cls._instance._llm_provider = "azure"
+            # 默认使用 Azure
+            cls._instance._llm_provider = "azure"
         return cls._instance
     
     def get_llm_provider(self) -> str:
         """获取当前 LLM 提供商"""
         return self._llm_provider
     
-    def set_llm_provider(self, provider: Literal["gemini", "azure"]) -> None:
+    def set_llm_provider(self, provider: Literal["azure"]) -> None:
         """
         设置 LLM 提供商
         
         Args:
-            provider: 提供商名称，必须是 'gemini' 或 'azure'
+            provider: 提供商名称，仅支持 'azure'
         
         Raises:
             ValueError: 如果提供商名称无效
         """
         provider = provider.lower()
-        if provider not in ("gemini", "azure"):
-            raise ValueError(f"无效的 LLM 提供商: {provider}，仅支持 'gemini' 或 'azure'")
+        if provider != "azure":
+            raise ValueError(f"无效的 LLM 提供商: {provider}，仅支持 'azure'")
         self._llm_provider = provider
     
     def get_all_config(self) -> dict:
         """获取所有配置项"""
         return {
             "llm_provider": self._llm_provider,
-            "available_providers": ["gemini", "azure"]
+            "available_providers": ["azure"]
         }
 
 

@@ -32,7 +32,7 @@ class BatchAnalysisStartRequest(BaseModel):
     task_id: str
     prompt: Optional[str] = None  # 为空使用默认 Prompt
     filter_keywords: Optional[List[str]] = None  # 为空使用默认关键词
-    model: Optional[str] = None  # gemini 或 azure，为空使用全局配置
+    model: Optional[str] = None  # 仅支持 azure，为空使用全局配置
     concurrency: int = Field(default=5, ge=1, le=20)  # 并行度 1-20
     max_retries: int = Field(default=3, ge=1, le=10)  # 重试次数 1-10
     analysis_type: str = "email"  # email, people_cluster, subject_cluster

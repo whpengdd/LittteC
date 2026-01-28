@@ -10,7 +10,6 @@ import os
 from services.config_service import get_config_service
 
 from services.db_service import get_db_service
-from services.gemini_service import GeminiService
 from services.azure_service import AzureService
 from services.ai_base import AIServiceBase
 
@@ -23,7 +22,7 @@ class AnalysisRequest(BaseModel):
     """分析请求"""
     task_id: str
     email_id: int
-    model: Optional[Literal["gemini", "azure"]] = None  # 可选，未指定时使用全局配置
+    model: Optional[Literal["azure"]] = None  # 仅支持 Azure
 
 
 class AnalysisResponse(BaseModel):
@@ -45,31 +44,18 @@ class ModelInfo(BaseModel):
 
 # ===== AI 服务工厂 =====
 
-def get_ai_service(model: str) -> AIServiceBase:
+def get_ai_service(model: str = "azure") -> AIServiceBase:
     """
     根据模型名称获取 AI 服务实例
     这是唯一的 AI 服务创建入口，确保统一管理
     """
-    if model == "gemini":
-        try:
-            return GeminiService()
-        except ValueError as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Gemini 服务初始化失败: {str(e)}"
-            )
-    elif model == "azure":
-        try:
-            return AzureService()
-        except ValueError as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Azure OpenAI 服务初始化失败: {str(e)}"
-            )
-    else:
+    # 仅支持 Azure
+    try:
+        return AzureService()
+    except ValueError as e:
         raise HTTPException(
-            status_code=400,
-            detail=f"不支持的模型: {model}，仅支持 'gemini' 或 'azure'"
+            status_code=500,
+            detail=f"Azure OpenAI 服务初始化失败: {str(e)}"
         )
 
 
@@ -94,8 +80,8 @@ async def summarize_email(request: AnalysisRequest):
     # 2. 构建完整文本（主题 + 内容）
     text_to_analyze = f"主题: {email.get('subject', '无主题')}\n\n{email.get('content', '')}"
     
-    # 3. 调用 AI 服务生成摘要（优先使用请求指定的模型，否则使用全局配置）
-    model_to_use = request.model or get_config_service().get_llm_provider()
+    # 3. 调用 AI 服务生成摘要（仅使用 Azure）
+    model_to_use = "azure"
     ai_service = get_ai_service(model_to_use)
     summary_result = await ai_service.summarize(text_to_analyze)
     
@@ -138,8 +124,8 @@ async def analyze_sentiment(request: AnalysisRequest):
     # 2. 构建文本
     text_to_analyze = f"主题: {email.get('subject', '无主题')}\n\n{email.get('content', '')}"
     
-    # 3. 调用 AI 服务（优先使用请求指定的模型，否则使用全局配置）
-    model_to_use = request.model or get_config_service().get_llm_provider()
+    # 3. 调用 AI 服务（仅使用 Azure）
+    model_to_use = "azure"
     ai_service = get_ai_service(model_to_use)
     sentiment_result = await ai_service.analyze_sentiment(text_to_analyze)
     
@@ -182,8 +168,8 @@ async def extract_entities(request: AnalysisRequest):
     # 2. 构建文本
     text_to_analyze = f"主题: {email.get('subject', '无主题')}\n\n{email.get('content', '')}"
     
-    # 3. 调用 AI 服务（优先使用请求指定的模型，否则使用全局配置）
-    model_to_use = request.model or get_config_service().get_llm_provider()
+    # 3. 调用 AI 服务（仅使用 Azure）
+    model_to_use = "azure"
     ai_service = get_ai_service(model_to_use)
     entity_result = await ai_service.extract_entities(text_to_analyze)
     
@@ -241,23 +227,7 @@ async def get_available_models():
     """
     models = []
     
-    # 检查 Gemini
-    try:
-        gemini = GeminiService()
-        models.append(ModelInfo(
-            provider="gemini",
-            name=gemini.model_name,
-            available=True
-        ))
-    except Exception as e:
-        models.append(ModelInfo(
-            provider="gemini",
-            name="gemini-2.0-flash",
-            available=False,
-            error=str(e)
-        ))
-    
-    # 检查 Azure OpenAI
+    # 仅检查 Azure OpenAI
     try:
         azure = AzureService()
         models.append(ModelInfo(
@@ -268,7 +238,7 @@ async def get_available_models():
     except Exception as e:
         models.append(ModelInfo(
             provider="azure",
-            name="gpt-35-turbo",
+            name="gpt-4o",
             available=False,
             error=str(e)
         ))

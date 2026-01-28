@@ -6,7 +6,6 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import os
 import asyncio
-import google.generativeai as genai
 
 from services.config_service import get_config_service
 
@@ -57,14 +56,11 @@ async def chat(request: ChatRequest):
     # 构建上下文
     context_text = build_context(context_emails)
     
-    # 获取要使用的模型（优先使用请求指定的模型，否则使用全局配置）
-    model_to_use = request.model or get_config_service().get_llm_provider()
+    # 获取要使用的模型（仅支持 Azure）
+    model_to_use = "azure"
     
-    # 调用 AI 生成答案
-    if model_to_use == "gemini":
-        answer = await generate_answer_gemini(request.question, context_text)
-    else:
-        answer = await generate_answer_azure(request.question, context_text)
+    # 调用 Azure OpenAI 生成答案
+    answer = await generate_answer_azure(request.question, context_text)
     
     return ChatResponse(
         answer=answer,
@@ -99,46 +95,6 @@ def build_context(emails: List[Dict[str, Any]], max_length: int = 3000) -> str:
     """
     from services.email_dedup_service import EmailDedupService
     return EmailDedupService.build_deduped_context(emails, max_chars=max_length)
-
-
-async def generate_answer_gemini(question: str, context: str) -> str:
-    """
-    使用 Gemini 生成答案
-    """
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="Gemini API Key 未配置")
-    
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
-    
-    prompt = f"""你是一个邮件分析助手。请基于以下邮件内容回答用户的问题。
-
-## 相关邮件内容：
-{context}
-
-## 用户问题：
-{question}
-
-## 请用中文回答，要求：
-1. 直接回答问题，不要添加不必要的解释
-2. 如果问题涉及具体邮件，请引用相关内容
-3. 如果找不到相关信息，请诚实说明
-
-回答："""
-    
-    try:
-        response = await asyncio.to_thread(
-            model.generate_content,
-            prompt,
-            generation_config={
-                "temperature": 0.3,
-                "max_output_tokens": 1000
-            }
-        )
-        return response.text.strip()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gemini 调用失败: {str(e)}")
 
 
 async def generate_answer_azure(question: str, context: str) -> str:
