@@ -1,0 +1,14 @@
+services: 
+  littlec: 
+    image: ai-summary:1.3
+    build: .
+    container_name: littlec-app
+    restart: always
+    network_mode: host
+    volumes:
+      - ./backend/data:/app/backend/data
+      - ./backend/.env:/app/backend/.env
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+    stdin_open: true
+    tty: true
