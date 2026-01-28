@@ -7,6 +7,7 @@ interface BatchAnalysisProgressProps {
     onComplete?: () => void;
     onCancel?: () => void;
     onProgress?: (processed: number, success: number) => void;
+    onResume?: (jobId: string) => void;
 }
 
 interface JobStatus {
@@ -39,7 +40,8 @@ const BatchAnalysisProgress: React.FC<BatchAnalysisProgressProps> = ({
     taskId,
     onComplete,
     onCancel,
-    onProgress
+    onProgress,
+    onResume
 }) => {
     const [status, setStatus] = useState<JobStatus | null>(null);
     const [loading, setLoading] = useState(true);
