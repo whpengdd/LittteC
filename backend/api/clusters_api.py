@@ -9,6 +9,7 @@ import os
 import io
 import csv
 import json
+from urllib.parse import quote
 
 from services.db_service import get_db_service
 
@@ -209,7 +210,7 @@ async def export_clusters(
     task_id: str,
     cluster_type: str = Query("people", description="聚类类型: people 或 subjects")
 ):
-    """导出聚类数据为 CSV"""
+    """导出聚类数据为 CSV (解析 AI 洞察字段)"""
     db = get_db_service()
     
     # 验证任务存在
@@ -219,26 +220,68 @@ async def export_clusters(
     
     clusters = db.get_all_clusters_for_export(task_id, cluster_type)
     
+    # 处理数据，解析 ai_insight
+    processed_clusters = []
+    for cluster in clusters:
+        # 复制原有数据
+        row = cluster.copy()
+        
+        # 解析 AI 洞察
+        ai_insight_str = row.pop("ai_insight", "")
+        risk_level = ""
+        summary = ""
+        tags = ""
+        key_findings = ""
+        
+        if ai_insight_str:
+            try:
+                insight_data = json.loads(ai_insight_str)
+                risk_level = insight_data.get("risk_level", "")
+                summary = insight_data.get("summary", "")
+                
+                # 处理标签列表
+                tags_list = insight_data.get("tags", [])
+                if isinstance(tags_list, list):
+                    tags = ", ".join(str(t) for t in tags_list)
+                else:
+                    tags = str(tags_list)
+                    
+                key_findings = insight_data.get("key_findings", "")
+            except json.JSONDecodeError:
+                # 解析失败，将原始字符串放入 summary 或保持为空
+                summary = ai_insight_str
+        
+        # 添加新字段
+        row["risk_level"] = risk_level
+        row["summary"] = summary
+        row["tags"] = tags
+        row["key_findings"] = key_findings
+        
+        processed_clusters.append(row)
+    
     # 创建 CSV 内容
     output = io.StringIO()
     
-    if cluster_type == "people":
-        fieldnames = ["participants", "email_count", "latest_activity", "ai_insight"]
-    else:
-        fieldnames = ["subject", "email_count", "latest_activity", "ai_insight"]
+    # 定义新的表头
+    base_fields = ["participants", "email_count", "latest_activity"] if cluster_type == "people" else ["subject", "email_count", "latest_activity"]
+    insight_fields = ["risk_level", "summary", "tags", "key_findings"]
+    fieldnames = base_fields + insight_fields
     
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
-    writer.writerows(clusters)
+    writer.writerows(processed_clusters)
     
     # 返回文件流
     output.seek(0)
     filename = f"{task['name']}_{cluster_type}_clusters.csv"
     
+    # 处理文件名编码
+    encoded_filename = quote(filename)
+    
     return StreamingResponse(
-        iter([output.getvalue()]),
+        iter(['\ufeff' + output.getvalue()]),
         media_type="text/csv",
         headers={
-            "Content-Disposition": f"attachment; filename=\"{filename}\""
+            "Content-Disposition": f"attachment; filename=\"{encoded_filename}\"; filename*=utf-8''{encoded_filename}"
         }
     )
